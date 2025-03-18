@@ -1,0 +1,1993 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">    
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.3.2/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; margin: 0; }
+        input, button, textarea, select { margin: 5px; padding: 5px; }
+        .grid-container { display: grid; grid-template-columns: repeat(202, 1fr); gap: 10px; overflow-x: auto; }
+        .column { display: flex; flex-direction: column; }
+        textarea { width: 100%; height: 300px; resize: vertical; }
+        .chart-container { margin-top: 20px; height: 400px; position: relative; }
+        #statsContainer { margin-top: 20px; }
+        #generalStatsContainer { margin-top: 20px; }
+        #summaryContainer { margin-top: 20px; }
+        .sensor-id { display: flex; align-items: center; }
+        .sensor-id span { flex-shrink: 0; margin-right: 5px; }
+        .drop-zone {
+            border: 2px dashed #ccc;
+            padding: 10px;
+            color: #999;
+            text-align: center;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+        .drop-zone.highlight {
+            background-color: #e8f5e9;
+            border-color: #4caf50;
+        }
+        canvas {
+            border: 1px solid #ccc;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 150mm;
+            margin-bottom: 50mm;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            text-align: justify;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+        .image-upload {
+            margin: 20px 0;
+            padding: 10px;
+        }
+        .image-upload label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+<div id="inputControls">
+    <!-- Seletor de Tipo de Dados -->
+    <select id="dataType" onchange="toggleLimits()">
+        <option value="temp">Temperatura (°C)</option>
+        <option value="humid">Umidade Relativa (%UR)</option>
+        <option value="both">Temperatura e Umidade</option>
+    </select>
+
+    <!-- Limites de Temperatura -->
+    <div id="tempLimits">
+        <input type="number" id="LI_temp" placeholder="Limite Inferior Temperatura">
+        <input type="number" id="LS_temp" placeholder="Limite Superior Temperatura">
+    </div>
+
+    <!-- Limites de Umidade -->
+    <div id="humidLimits" style="display:none;">
+        <input type="number" id="LI_humid" placeholder="Limite Inferior Umidade">
+        <input type="number" id="LS_humid" placeholder="Limite Superior Umidade">
+    </div>
+
+    <!-- Seleção de Testes -->
+    <select id="testType">
+        <option value="semCarga">Distribuição térmica sem carga</option>
+        <option value="comCarga">Distribuição térmica com carga</option>
+        <option value="comCargaRota">Distribuição térmica com carga em rota</option>
+        <option value="aberturaPorta">Abertura de porta</option>
+        <option value="quedaEnergia">Queda de energia</option>
+    </select>
+
+    <!-- Campo de Observações -->
+    <div>
+        <label for="observations">Observações:</label>
+        <input type="text" id="observations" placeholder="Insira suas observações aqui..." style="width: 33%;">
+    </div>
+
+    <!-- Outros controles existentes -->
+    <div>
+        <input type="datetime-local" id="startDate" placeholder="Data/Hora Inicial">
+        <label><input type="checkbox" id="allDatesFlag" checked> Considerar todos os dados</label>
+    </div>
+    <input type="datetime-local" id="endDate" placeholder="Data/Hora Final">
+</div>
+
+<!-- Campo para upload do Croqui -->
+<div class="image-upload">
+    <label for="croqui">Croqui de distribuição:</label>
+    <input type="file" id="croqui" accept="image/*">
+</div>
+
+<div class="grid-container">
+    <div class="column">
+        <input type="text" value="Data/Hora" readonly>
+        <textarea id="column0" placeholder="Cole os dados de Data/Hora aqui"></textarea>
+    </div>
+    <div class="column">
+        <div class="sensor-id"><span>S EXT:</span><input type="text" id="sensorEXT" placeholder="ID do Sensor"></div>
+        <textarea id="columnEXT" placeholder="Cole os dados aqui"></textarea>
+        <div class="drop-zone" id="dropzoneEXT">Arraste e solte o arquivo aqui</div>
+    </div>
+    <script>
+        for (let i = 1; i <= 200; i++) {
+            document.write(`
+                <div class="column">
+                    <div class="sensor-id"><span>S${i}:</span><input type="text" id="sensor${i}" placeholder="ID do Sensor"></div>
+                    <textarea id="column${i}" placeholder="Cole os dados aqui"></textarea>
+                    <div class="drop-zone" id="dropzone${i}">Arraste e solte o arquivo aqui</div>
+                </div>
+            `);
+        }
+    </script>
+</div>
+
+<!-- Seus botões -->
+<button onclick="generateCharts()">Gerar Gráficos</button>
+<button onclick="chooseFileFormat()">Baixar Relatório</button>
+
+<table id="tempTable"></table>
+<table id="humidTable"></table>
+<table id="generalStatsTableTemp"></table>
+<table id="generalStatsTableHumid"></table>
+
+<div id="printArea">
+    <div class="chart-container" id="chartContainerTemp">
+        <canvas id="myChartTemp"></canvas>
+    </div>
+
+    <div id="tempStatsTableContainer">
+        <table id="tempTable"></table>
+    </div>
+
+    <table id="generalStatsTableTemp"></table>
+
+    <div class="chart-container" id="chartContainerHumid">
+        <canvas id="myChartHumid"></canvas>
+    </div>
+
+    <div id="humidStatsTableContainer">
+        <table id="humidTable"></table>
+    </div>
+
+    <table id="generalStatsTableHumid"></table>
+
+    <div class="print-section" id="statsContainer"></div>
+    <div class="print-section" id="generalStatsContainer"></div>
+    <div class="print-section" id="summaryContainer"></div>
+</div>
+
+
+
+</body>
+</html>
+
+
+
+
+
+
+    <script>
+    let chart1;
+
+
+
+
+// Função para alternar os limites (Temperatura ou Umidade)
+function toggleLimits() {
+    const dataType = document.getElementById('dataType').value;
+    const tempLimits = document.getElementById('tempLimits');
+    const humidLimits = document.getElementById('humidLimits');
+
+    if (dataType === 'temp') {
+        tempLimits.style.display = 'block';
+        humidLimits.style.display = 'none';
+    } else if (dataType === 'humid') {
+        tempLimits.style.display = 'none';
+        humidLimits.style.display = 'block';
+    } else if (dataType === 'both') {
+        tempLimits.style.display = 'block';
+        humidLimits.style.display = 'block';
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    // Função para gerar o relatório em PDF
+function chooseFileFormat() {
+    const { jsPDF } = window.jspdf;
+    const dataType = document.getElementById('dataType').value;
+    const testType = document.getElementById('testType').value;
+    let limiteInferiorTemp, limiteSuperiorTemp, limiteInferiorHumid, limiteSuperiorHumid;
+
+    if (dataType === 'temp' || dataType === 'both') {
+        limiteInferiorTemp = parseFloat(document.getElementById('LI_temp').value) || 0;
+        limiteSuperiorTemp = parseFloat(document.getElementById('LS_temp').value) || 0;
+    }
+    if (dataType === 'humid' || dataType === 'both') {
+        limiteInferiorHumid = parseFloat(document.getElementById('LI_humid').value) || 0;
+        limiteSuperiorHumid = parseFloat(document.getElementById('LS_humid').value) || 0;
+    }
+
+    const analysisNames = {
+        semCarga: "Distribuição térmica sem carga",
+        comCarga: "Distribuição térmica com carga",
+        comCargaRota: "Distribuição térmica com carga em rota",
+        aberturaPorta: "Abertura de porta",
+        quedaEnergia: "Queda de energia"
+    };
+
+    const analysisName = analysisNames[testType] || "Teste não identificado";
+    const observationsCapa = document.getElementById('observations')?.value?.trim() || '';
+
+const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+    compress: true, // Ativa a compressão interna do jsPDF
+});
+
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10;
+    const pdfWidth = pageWidth - (2 * margin);
+
+    // Primeira página - Folha de rosto
+    doc.setFontSize(28);
+    doc.setTextColor(0, 0, 0);
+    const titleText = `Dados brutos do teste de\n${analysisName}`;
+    doc.text(titleText, pageWidth / 2, pageHeight / 3, { align: 'center' });
+
+    if (observationsCapa) {
+        doc.setFontSize(14);
+        doc.text(`Observações:\n${observationsCapa}`, pageWidth / 2, pageHeight / 2, { align: 'center' });
+    }
+
+    // Configuração das tabelas estatísticas
+    const tableOptions = {
+        theme: 'grid',
+        styles: {
+            fontSize: 8,
+            cellPadding: 2,
+            halign: 'center',
+            valign: 'middle',
+            lineWidth: 0.1
+        },
+        headStyles: {
+            fillColor: [40, 167, 147],
+            textColor: [255, 255, 255],
+            fontSize: 8,
+            fontStyle: 'bold',
+            halign: 'center'
+        },
+        margin: { left: 10, right: 10 }
+    };
+
+    const addStatisticalTables = async (startY) => {
+        let currentY = startY;
+
+        if (['semCarga', 'comCarga', 'comCargaRota'].includes(testType)) {
+            // Tabela de temperatura
+            const tempTable = document.getElementById('tempTable');
+            if (tempTable && (dataType === 'temp' || dataType === 'both')) {
+                if (currentY + 100 > pageHeight) {
+                    doc.addPage();
+                    currentY = 10;
+                }
+                doc.autoTable({
+                    ...tableOptions,
+                    startY: currentY,
+                    html: tempTable,
+                    columnStyles: {
+                        0: { cellWidth: 40 },
+                        1: { cellWidth: 25 },
+                        2: { cellWidth: 25 },
+                        3: { cellWidth: 25 },
+                        4: { cellWidth: 25 },
+                        5: { cellWidth: 25 },
+                        6: { cellWidth: 25 }
+                    }
+                });
+                currentY = doc.lastAutoTable.finalY + 5;
+            }
+
+            // Tabela de umidade
+            const humidTable = document.getElementById('humidTable');
+            if (humidTable && (dataType === 'humid' || dataType === 'both')) {
+                if (currentY + 100 > pageHeight) {
+                    doc.addPage();
+                    currentY = 10;
+                }
+                doc.autoTable({
+                    ...tableOptions,
+                    startY: currentY,
+                    html: humidTable,
+                    columnStyles: {
+                        0: { cellWidth: 40 },
+                        1: { cellWidth: 25 },
+                        2: { cellWidth: 25 },
+                        3: { cellWidth: 25 },
+                        4: { cellWidth: 25 },
+                        5: { cellWidth: 25 },
+                        6: { cellWidth: 25 }
+                    }
+                });
+                currentY = doc.lastAutoTable.finalY + 5;
+            }
+
+            // Tabelas de estatísticas gerais
+            const generalStatsTableTemp = document.getElementById('generalStatsTableTemp');
+            if (generalStatsTableTemp && (dataType === 'temp' || dataType === 'both')) {
+                if (currentY + 100 > pageHeight) {
+                    doc.addPage();
+                    currentY = 10;
+                }
+                doc.autoTable({
+                    ...tableOptions,
+                    startY: currentY,
+                    html: generalStatsTableTemp,
+                    columnStyles: {
+                        0: { cellWidth: 23 },
+                        1: { cellWidth: 23 },
+                        2: { cellWidth: 23 },
+                        3: { cellWidth: 23 },
+                        4: { cellWidth: 23 },
+                        5: { cellWidth: 25 },
+                        6: { cellWidth: 25 },
+                        7: { cellWidth: 25 }
+                    }
+                });
+                currentY = doc.lastAutoTable.finalY + 5;
+            }
+
+            const generalStatsTableHumid = document.getElementById('generalStatsTableHumid');
+            if (generalStatsTableHumid && (dataType === 'humid' || dataType === 'both')) {
+                if (currentY + 100 > pageHeight) {
+                    doc.addPage();
+                    currentY = 10;
+                }
+                doc.autoTable({
+                    ...tableOptions,
+                    startY: currentY,
+                    html: generalStatsTableHumid,
+                    columnStyles: {
+                        0: { cellWidth: 23 },
+                        1: { cellWidth: 23 },
+                        2: { cellWidth: 23 },
+                        3: { cellWidth: 23 },
+                        4: { cellWidth: 23 },
+                        5: { cellWidth: 25 },
+                        6: { cellWidth: 25 },
+                        7: { cellWidth: 25 }
+                    }
+                });
+            }
+        }
+    };
+
+    const processCharts = async () => {
+        // Página 2 - Gráficos
+        doc.addPage();
+        let currentY = 10;
+
+        const tempChart = document.getElementById('myChartTemp');
+        const humidChart = document.getElementById('myChartHumid');
+
+        if (tempChart) {
+            const tempCanvas = await html2canvas(tempChart, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true
+            });
+            const tempImgData = tempCanvas.toDataURL('image/jpeg', 0.5);
+            const tempImgProps = doc.getImageProperties(tempImgData);
+            const tempHeight = (tempImgProps.height * pdfWidth) / tempImgProps.width;
+            doc.addImage(tempImgData, 'JPEG', margin, currentY, pdfWidth, tempHeight);
+            currentY += tempHeight + 10;
+
+            if (dataType === 'both' && humidChart) {
+                const humidCanvas = await html2canvas(humidChart, {
+                    scale: 1.5,
+                    useCORS: true,
+                    allowTaint: true
+                });
+                const humidImgData = humidCanvas.toDataURL('image/jpeg', 0.5);
+                const humidImgProps = doc.getImageProperties(humidImgData);
+                const humidHeight = (humidImgProps.height * pdfWidth) / tempImgProps.width;
+
+                if (currentY + humidHeight > pageHeight - 20) {
+                    doc.addPage();
+                    currentY = 10;
+                }
+                doc.addImage(humidImgData, 'JPEG', margin, currentY, pdfWidth, humidHeight);
+            }
+        }
+
+        // Página 3 - Croqui
+        doc.addPage();
+        currentY = 10;
+
+        const croquiInput = document.getElementById('croqui');
+        if (croquiInput.files && croquiInput.files[0]) {
+            const reader = new FileReader();
+            
+            reader.onload = async function(e) {
+                doc.setFontSize(14);
+                doc.text("Croqui de distribuição", pageWidth / 2, currentY + 5, { align: 'center' });
+                currentY += 15;
+
+                const imgData = e.target.result;
+                const imgProps = doc.getImageProperties(imgData);
+                const imgScale = 0.5;
+                const imgWidth = pdfWidth * imgScale;
+                const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+                const xOffset = (pageWidth - imgWidth) / 2;
+
+                doc.addImage(imgData, 'JPEG', xOffset, currentY, imgWidth, imgHeight);
+                currentY += imgHeight + 10;
+
+                // Adicionar tabelas estatísticas após o croqui
+                await addStatisticalTables(currentY);
+
+                // Adicionar tabelas de dados em orientação paisagem
+                doc.addPage('a4', 'landscape');
+                addDataTablesAndFinalize();
+            };
+            reader.readAsDataURL(croquiInput.files[0]);
+        } else {
+            // Se não houver croqui, adicionar tabelas estatísticas diretamente
+            await addStatisticalTables(currentY);
+            doc.addPage('a4', 'landscape');
+            addDataTablesAndFinalize();
+        }
+    };
+
+    processCharts().catch(error => {
+        console.error('Erro ao gerar o PDF:', error);
+        alert('Erro ao gerar o PDF. Por favor, tente novamente.');
+    });
+
+    function addDataTablesAndFinalize() {
+        if (dataType === 'both') {
+            addDataTables(doc, limiteInferiorTemp, limiteSuperiorTemp, limiteInferiorHumid, limiteSuperiorHumid);
+        } else if (dataType === 'temp') {
+            addDataTables(doc, limiteInferiorTemp, limiteSuperiorTemp);
+        } else {
+            addDataTables(doc, limiteInferiorHumid, limiteSuperiorHumid);
+        }
+
+        const totalPages = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+            doc.setPage(i);
+            doc.setFontSize(10);
+            const pageText = `Página ${i} de ${totalPages}`;
+            const textWidth = doc.getTextWidth(pageText);
+            const textX = (doc.internal.pageSize.getWidth() - textWidth) / 2;
+            doc.text(pageText, textX, doc.internal.pageSize.getHeight() - 10);
+        }
+
+        doc.save(`relatorio_${testType.toLowerCase()}.pdf`);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Função auxiliar para adicionar numeração de páginas
+function addPageNumbers(doc) {
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(10);
+        const pageText = `Página ${i} de ${totalPages}`;
+        const textWidth = doc.getTextWidth(pageText);
+        const textX = (doc.internal.pageSize.getWidth() - textWidth) / 2;
+        doc.text(pageText, textX, doc.internal.pageSize.getHeight() - 10);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Função para adicionar as estatísticas por sensor
+function addSensorStats(doc, startY) {
+    const sensorStatsElement = document.getElementById('statsContainer');
+    if (sensorStatsElement) {
+        const table = sensorStatsElement.querySelector('table');
+
+        if (table) {
+            doc.setFontSize(12); // Reduzindo o tamanho da fonte da tabela
+            doc.setTextColor(0, 0, 0);
+
+            if (startY + 15 > doc.internal.pageSize.getHeight()) {
+                doc.addPage();
+                startY = 15;
+            }
+
+            doc.text("Estatísticas Individuais por Sensor", doc.internal.pageSize.getWidth() / 2, startY, { align: 'center' });
+            startY += 8;  // Reduzindo o espaço entre o título e a tabela
+
+            let minValue = Infinity;
+            let maxValue = -Infinity;
+
+            const rows = table.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                const minCell = parseFloat(row.cells[1].textContent);
+                const maxCell = parseFloat(row.cells[3].textContent);
+                if (minCell < minValue) minValue = minCell;
+                if (maxCell > maxValue) maxValue = maxCell;
+            });
+
+            doc.autoTable({
+                html: table,
+                startY: startY,
+                theme: 'grid',
+                styles: {
+                    fontSize: 8, // Reduzindo ainda mais a fonte da tabela para otimizar o espaço
+                    cellPadding: 1,
+                    halign: 'center'
+                },
+                headStyles: {
+                    fillColor: [240, 240, 240],
+                    textColor: [0, 0, 0],
+                    fontSize: 8
+                },
+                columnStyles: {
+                    1: { cellWidth: 'auto' },
+                    3: { cellWidth: 'auto' }
+                },
+                didParseCell: function (data) {
+                    if (data.column.index === 1 && parseFloat(data.cell.raw) === minValue) {
+                        data.cell.styles.textColor = [0, 0, 255];
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                    if (data.column.index === 3 && parseFloat(data.cell.raw) === maxValue) {
+                        data.cell.styles.textColor = [255, 0, 0];
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                }
+            });
+
+            return doc.lastAutoTable.finalY + 8;  // Reduzindo o espaçamento após a tabela
+        }
+    }
+    return startY;
+}
+
+// Função para adicionar as estatísticas gerais
+function addGeneralStats(doc, startY) {
+    const generalStatsElement = document.getElementById('generalStatsContainer');
+    if (generalStatsElement) {
+        const table = generalStatsElement.querySelector('table');
+        if (table) {
+            doc.setFontSize(12); // Reduzindo o tamanho da fonte do título
+            doc.setTextColor(0, 0, 0);
+
+            if (startY + 15 > doc.internal.pageSize.getHeight()) {
+                doc.addPage();
+                startY = 15;
+            }
+
+            doc.text("Estatísticas Gerais", doc.internal.pageSize.getWidth() / 2, startY, { align: 'center' });
+            startY += 8;  // Reduzindo o espaço entre o título e a tabela
+
+            doc.autoTable({
+                html: table,
+                startY: startY,
+                theme: 'grid',
+                styles: {
+                    fontSize: 8, // Reduzindo o tamanho da fonte da tabela
+                    cellPadding: 1,
+                    halign: 'center'
+                },
+                headStyles: {
+                    fillColor: [240, 240, 240],
+                    textColor: [0, 0, 0],
+                    fontSize: 8
+                }
+            });
+            return doc.lastAutoTable.finalY + 8;  // Reduzindo o espaçamento após a tabela
+        }
+    }
+    return startY;
+}
+
+// Função para adicionar a avaliação de pontos quentes e frios
+function addHotColdPoints(doc, startY) {
+    const hotColdPointsElement = document.getElementById('summaryContainer');
+    if (hotColdPointsElement) {
+        const textElement = hotColdPointsElement.querySelector('p'); // Assume-se que o texto está em um parágrafo <p>
+        
+        if (textElement) {
+            const text = textElement.textContent; // Pegando o texto do parágrafo
+            doc.setFontSize(12); // Ajustando o tamanho da fonte do título
+            doc.setTextColor(0, 0, 0);
+
+            if (startY + 15 > doc.internal.pageSize.getHeight()) {
+                doc.addPage();
+                startY = 15;
+            }
+
+            // Adiciona o título "Avaliação de Pontos Quentes e Frios"
+            doc.text("Avaliação de Pontos Quentes e Frios", doc.internal.pageSize.getWidth() / 2, startY, { align: 'center' });
+            startY += 10; // Espaço entre o título e o texto
+
+            // Adiciona o texto explicativo no PDF
+            doc.setFontSize(10); // Ajusta o tamanho da fonte do texto explicativo
+            const splitText = doc.splitTextToSize(text, doc.internal.pageSize.getWidth() - 20); // Divide o texto para caber na página
+            doc.text(splitText, 10, startY); // Adiciona o texto no PDF, com margem de 10
+            startY += splitText.length * 5; // Ajusta a posição Y após o texto
+
+            startY += 5; // Pequeno espaço após o texto antes de começar a tabela
+        }
+
+        // Em seguida, adicionamos a tabela de "Pontos Quentes e Frios" se ela existir
+        const table = hotColdPointsElement.querySelector('table');
+        if (table) {
+            doc.autoTable({
+                html: table,
+                startY: startY,
+                theme: 'grid',
+                styles: {
+                    fontSize: 8, // Reduzindo o tamanho da fonte da tabela para otimizar espaço
+                    cellPadding: 1,
+                    halign: 'center'
+                },
+                headStyles: {
+                    fillColor: [240, 240, 240],
+                    textColor: [0, 0, 0],
+                    fontSize: 8
+                }
+            });
+            return doc.lastAutoTable.finalY + 8; // Espaço após a tabela
+        }
+    }
+    return startY;
+}
+
+
+
+
+
+
+// Função para adicionar as tabelas de dados nas páginas subsequentes
+function addDataTables(doc, limiteInferiorTemp, limiteSuperiorTemp, limiteInferiorHumid, limiteSuperiorHumid) {
+    const dataType = document.getElementById('dataType').value;
+    const headers = [['Data/Hora']];
+    let columnsWithData = [];
+    const dataHoraColumn = document.getElementById('column0').value.split('\n').filter(Boolean);
+
+    const sExtElement = document.getElementById('columnEXT');
+    const sExtData = sExtElement.value.split('\n').filter(line => line.trim() !== '');
+
+    const allDatesFlag = document.getElementById('allDatesFlag').checked;
+    let startDate = null;
+    let endDate = null;
+
+    if (!allDatesFlag) {
+        startDate = new Date(document.getElementById('startDate').value);
+        endDate = new Date(document.getElementById('endDate').value);
+        if (!startDate || !endDate || isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            alert("Por favor, insira datas válidas de início e fim.");
+            return;
+        }
+    }
+
+    function isInRange(dateTime) {
+        const currentDate = new Date(dateTime);
+        return allDatesFlag || (currentDate >= startDate && currentDate <= endDate);
+    }
+
+    const filteredDataHora = dataHoraColumn.filter(isInRange);
+
+    if (sExtData.length > 0) {
+        headers[0].push('S EXT');
+        columnsWithData.push(sExtData.filter((_, index) => isInRange(dataHoraColumn[index])));
+    }
+
+    for (let i = 1; i <= 200; i++) {
+        const sensorId = document.getElementById(`sensor${i}`).value.trim();
+        const columnElement = document.getElementById(`column${i}`).value.trim();
+
+        if (sensorId && columnElement) {
+            const columnData = columnElement.split('\n').filter(line => line.trim() !== '');
+            headers[0].push(`S${i} ${sensorId}`);
+            columnsWithData.push(columnData.filter((_, index) => isInRange(dataHoraColumn[index])));
+        }
+    }
+
+    const maxColumnsPerPage = 15;
+    let startColumnIndex = 0;
+
+    while (startColumnIndex < columnsWithData.length) {
+        const endColumnIndex = Math.min(startColumnIndex + maxColumnsPerPage, columnsWithData.length);
+        const pageHeaders = [['Data/Hora'].concat(headers[0].slice(startColumnIndex + 1, endColumnIndex + 1))];
+        const pageBody = [];
+
+        for (let rowIndex = 0; rowIndex < filteredDataHora.length; rowIndex++) {
+            const row = [filteredDataHora[rowIndex]];
+            let hasValidData = false;
+
+            for (let colIndex = startColumnIndex; colIndex < endColumnIndex; colIndex++) {
+                let cellData = columnsWithData[colIndex][rowIndex] || '';
+
+                if (cellData.trim() !== '') {
+                    if (dataType === 'both') {
+                        const [temp, humid] = cellData.split('|').map(value => value.trim());
+                        const tempFormatted = temp ? parseFloat(temp).toFixed(1) : '';
+                        const humidFormatted = humid ? parseFloat(humid).toFixed(1) : '';
+                        row.push(`${tempFormatted} | ${humidFormatted}`);
+                    } else {
+                        cellData = parseFloat(cellData).toFixed(1);
+                        row.push(cellData);
+                    }
+                    hasValidData = true;
+                } else {
+                    row.push('');
+                }
+            }
+
+            if (hasValidData) {
+                pageBody.push(row);
+            }
+        }
+
+        if (pageBody.length > 0) {
+            doc.autoTable({
+                head: pageHeaders,
+                body: pageBody,
+                startY: 20,
+                styles: {
+                    fontSize: 7,
+                    cellPadding: 1,
+                    lineWidth: 0.1,
+                    halign: 'center'
+                },
+                theme: 'grid',
+                margin: { bottom: 20 },
+                tableLineColor: [200, 200, 200],
+                tableLineWidth: 0.1,
+                didParseCell: function(data) {
+                    // Não aplicar formatação no cabeçalho ou na coluna de Data/Hora
+                    if (data.section === 'head' || data.column.index === 0) {
+                        return;
+                    }
+
+                    const value = data.cell.raw;
+                    if (!value) return;
+
+                    // Formatação para temperatura e umidade combinadas
+                    if (dataType === 'both' && value.includes('|')) {
+                        const [tempStr, humidStr] = value.split('|').map(v => v.trim());
+                        const tempValue = parseFloat(tempStr);
+                        const humidValue = parseFloat(humidStr);
+
+                        if (!isNaN(tempValue)) {
+                            if (tempValue > limiteSuperiorTemp || (humidValue && humidValue > limiteSuperiorHumid)) {
+                                data.cell.styles.textColor = [255, 0, 0]; // Vermelho
+                            } else if (tempValue < limiteInferiorTemp || (humidValue && humidValue < limiteInferiorHumid)) {
+                                data.cell.styles.textColor = [0, 0, 255]; // Azul
+                            }
+                        }
+                    } 
+                    // Formatação para temperatura ou umidade individual
+                    else {
+                        const numValue = parseFloat(value);
+                        if (!isNaN(numValue)) {
+                            if (dataType === 'temp') {
+                                if (numValue > limiteSuperiorTemp) {
+                                    data.cell.styles.textColor = [255, 0, 0]; // Vermelho
+                                } else if (numValue < limiteInferiorTemp) {
+                                    data.cell.styles.textColor = [0, 0, 255]; // Azul
+                                }
+                            } else if (dataType === 'humid') {
+                                if (numValue > limiteSuperiorHumid) {
+                                    data.cell.styles.textColor = [255, 0, 0]; // Vermelho
+                                } else if (numValue < limiteInferiorHumid) {
+                                    data.cell.styles.textColor = [0, 0, 255]; // Azul
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (endColumnIndex < columnsWithData.length) {
+                doc.addPage('a4', 'landscape');
+            }
+        }
+        startColumnIndex = endColumnIndex;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function downloadImage() {
+    const selectedAnalysis = document.getElementById('testType').value;
+    const canvas = document.querySelector('canvas'); // Seleciona o elemento <canvas> (gráfico)
+    const sensorStatsElement = document.getElementById('statsContainer'); // Tabelas de estatísticas por sensor
+    const generalStatsElement = document.getElementById('generalStatsContainer'); // Estatísticas gerais
+    const hotColdPointsElement = document.getElementById('summaryContainer'); // Pontos quentes e frios
+
+    // Criar um contêiner temporário no formato A4 em retrato
+    const tempContainer = document.createElement('div');
+    tempContainer.style.width = '210mm';  // Largura do A4 em retrato (210mm)
+    tempContainer.style.height = 'auto';  // Ajusta automaticamente conforme o conteúdo
+    tempContainer.style.padding = '10mm'; // Margens estreitas de 10mm
+    tempContainer.style.backgroundColor = "white";  // Fundo branco
+    tempContainer.style.boxSizing = "border-box";  // Garante que o padding seja incluído nas dimensões
+    tempContainer.style.position = "relative";  // Garante o correto posicionamento dos elementos
+    tempContainer.style.overflow = "visible"; // Para garantir que todos os elementos sejam visíveis
+
+    // Função para garantir que as tabelas ou qualquer conteúdo sejam visíveis e ocupem toda a largura
+    const ensureTableVisibility = (element) => {
+        element.style.display = "block";
+        element.style.visibility = "visible";
+        element.style.width = "100%"; // Garante que a tabela ocupe toda a largura do container
+        element.style.marginBottom = "10px"; // Adiciona espaço entre as tabelas
+    };
+
+    // Adicionar o gráfico capturado ao container temporário
+    if (canvas) {
+        const img = new Image();
+        img.src = canvas.toDataURL('image/png');  // Converte o canvas para uma imagem
+        img.style.width = '100%'; // Ajusta a largura para caber no container
+        tempContainer.appendChild(img);
+        console.log('Gráfico capturado e adicionado ao container.');
+    } else {
+        console.log('Erro: Gráfico não encontrado.');
+    }
+
+    // Aplicar as regras conforme o tipo de análise selecionado
+    if (selectedAnalysis === "semCarga") {
+        // Para "Distribuição térmica sem carga": Gráfico, Estatísticas Individuais por Sensor e Estatísticas Gerais
+        if (sensorStatsElement) {
+            const clonedSensorStats = sensorStatsElement.cloneNode(true);
+            ensureTableVisibility(clonedSensorStats);
+            tempContainer.appendChild(clonedSensorStats);
+            console.log('Estatísticas por Sensor adicionadas.');
+        }
+        if (generalStatsElement) {
+            const clonedGeneralStats = generalStatsElement.cloneNode(true);
+            ensureTableVisibility(clonedGeneralStats);
+            tempContainer.appendChild(clonedGeneralStats);
+            console.log('Estatísticas Gerais adicionadas.');
+        }
+    } else if (selectedAnalysis === "comCarga" || selectedAnalysis === "comCargaRota") {
+        // Para "Distribuição térmica com carga" e "Distribuição térmica com carga em rota"
+        if (sensorStatsElement) {
+            const clonedSensorStats = sensorStatsElement.cloneNode(true);
+            ensureTableVisibility(clonedSensorStats);
+            tempContainer.appendChild(clonedSensorStats);
+            console.log('Estatísticas por Sensor adicionadas.');
+        }
+        if (generalStatsElement) {
+            const clonedGeneralStats = generalStatsElement.cloneNode(true);
+            ensureTableVisibility(clonedGeneralStats);
+            tempContainer.appendChild(clonedGeneralStats);
+            console.log('Estatísticas Gerais adicionadas.');
+        }
+        if (hotColdPointsElement) {
+            const clonedHotColdPoints = hotColdPointsElement.cloneNode(true);
+            ensureTableVisibility(clonedHotColdPoints);
+            tempContainer.appendChild(clonedHotColdPoints);
+            console.log('Avaliação de Pontos Quentes e Frios adicionada.');
+        }
+    } else if (selectedAnalysis === "aberturaPorta" || selectedAnalysis === "quedaEnergia") {
+        // Inclui gráfico e estatísticas individuais por sensor para Abertura de Porta e Queda de Energia
+        if (sensorStatsElement) {
+            const clonedSensorStats = sensorStatsElement.cloneNode(true);
+
+        }
+    } else {
+        console.log('Erro: Análise não reconhecida.');
+    }
+
+    // Adiciona o container temporário ao corpo do documento para captura
+    document.body.appendChild(tempContainer);
+
+    // Aguarda e captura o conteúdo renderizado (gráfico + tabelas) em formato retrato
+    setTimeout(() => {
+        html2canvas(tempContainer, {
+            scale: 3,  // Aumenta a escala para capturar em alta resolução
+            logging: true,  // Para verificar se a captura está acontecendo corretamente
+            useCORS: true,  // Para permitir conteúdo externo se houver
+            allowTaint: true  // Permite capturar conteúdo dinâmico ou de origem externa
+        }).then(canvas => {
+            const imgData = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = imgData;
+            link.download = `relatorio_${selectedAnalysis.replace(/\s+/g, '_')}.png`; // Nome do arquivo
+            link.click();
+            document.body.removeChild(tempContainer);  // Remove o container temporário após a captura
+            console.log('Imagem capturada e baixada com sucesso.');
+        }).catch(function (error) {
+            console.log("Erro na captura: ", error);
+        });
+    }, 1500);  // Tempo de espera de 1.5 segundos para garantir que o conteúdo foi renderizado
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+let chartTemp = null;  // Variável global para o gráfico de temperatura
+let chartHumid = null;  // Variável global para o gráfico de umidade
+
+    // Função para gerar gráficos
+function generateCharts() {
+    const LI_temp = parseFloat(document.getElementById('LI_temp').value);
+    const LS_temp = parseFloat(document.getElementById('LS_temp').value);
+    const LI_humid = parseFloat(document.getElementById('LI_humid').value);
+    const LS_humid = parseFloat(document.getElementById('LS_humid').value);
+    const dataType = document.getElementById('dataType').value;
+
+    const fontConfig = {
+        family: 'Arial',
+        size: 18,
+        weight: 'bold',
+        color: '#000000'
+    };
+
+    const axisConfig = {
+        ticks: {
+            font: {
+                size: 18,
+                weight: 'bold'
+            },
+            color: '#000000'
+        },
+        title: {
+            display: true,
+            font: {
+                size: 14,
+                weight: 'bold'
+            },
+            color: '#000000'
+        }
+    };
+
+    // Obter e validar labels (datas)
+    let labels = document.getElementById('column0').value.split('\n').filter(Boolean);
+    if (labels.length === 0) {
+        alert("Não há dados de Data/Hora para gerar o gráfico.");
+        return;
+    }
+
+    // Aplicar filtro de data se necessário
+    const allDatesFlag = document.getElementById('allDatesFlag').checked;
+    let filteredLabels = labels;
+    let startDate, endDate;
+
+    if (!allDatesFlag) {
+        startDate = new Date(document.getElementById('startDate').value);
+        endDate = new Date(document.getElementById('endDate').value);
+        
+        if (!startDate || !endDate || isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            alert("Por favor, insira datas válidas de início e fim.");
+            return;
+        }
+
+        // Filtrar labels por data
+        filteredLabels = labels.filter(dateStr => {
+            const currentDate = new Date(dateStr);
+            return currentDate >= startDate && currentDate <= endDate;
+        });
+
+        if (filteredLabels.length === 0) {
+            alert("Não há dados no intervalo de datas selecionado.");
+            return;
+        }
+    }
+
+    let tempData = [];
+    let humidData = [];
+    let datasetsTemp = [];
+    let datasetsHumid = [];
+    const colors = [
+        'rgba(255, 99, 132, 1)', 'rgba(54, 162, 235, 1)', 'rgba(255, 206, 86, 1)',
+        'rgba(75, 192, 192, 1)', 'rgba(153, 102, 255, 1)', 'rgba(255, 159, 64, 1)'
+    ];
+
+    function getRandomColor(index) {
+        return colors[index % colors.length];
+    }
+
+    // Processar dados do sensor externo
+    const sensorEXTId = document.getElementById('sensorEXT').value.trim();
+    let sensorEXTData = document.getElementById('columnEXT').value.split('\n').filter(Boolean);
+    const sensorEXTDisplay = sensorEXTId ? `S EXT: ${sensorEXTId}` : 'S EXT';
+
+    // Aplicar filtro de data aos dados do sensor externo
+    if (!allDatesFlag) {
+        sensorEXTData = sensorEXTData.filter((_, index) => {
+            const currentDate = new Date(labels[index]);
+            return currentDate >= startDate && currentDate <= endDate;
+        });
+    }
+
+    if (sensorEXTData.length > 0) {
+        if (dataType === 'temp') {
+            const sensorEXTTempData = sensorEXTData.map(val => parseFloat(val.replace(',', '.')));
+            datasetsTemp.push({
+                label: `Temperatura ${sensorEXTDisplay}`,
+                data: sensorEXTTempData,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                yAxisID: 'yTemp',
+                fill: false
+            });
+        } else if (dataType === 'humid') {
+            const sensorEXTHumidData = sensorEXTData.map(val => parseFloat(val.replace(',', '.')));
+            datasetsHumid.push({
+                label: `Umidade ${sensorEXTDisplay}`,
+                data: sensorEXTHumidData,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                yAxisID: 'yHumid',
+                fill: false
+            });
+        } else if (dataType === 'both') {
+            const sensorEXTBothData = sensorEXTData.map(row => row.split('|').map(val => parseFloat(val.replace(',', '.'))));
+            const sensorEXTTempData = sensorEXTBothData.map(row => row[0]);
+            const sensorEXTHumidData = sensorEXTBothData.map(row => row[1]);
+
+            datasetsTemp.push({
+                label: `Temperatura ${sensorEXTDisplay}`,
+                data: sensorEXTTempData,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                yAxisID: 'yTemp',
+                fill: false
+            });
+
+            datasetsHumid.push({
+                label: `Umidade ${sensorEXTDisplay}`,
+                data: sensorEXTHumidData,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                yAxisID: 'yHumid',
+                fill: false
+            });
+        }
+    }
+
+    // Processar dados dos sensores S1-S200
+    for (let i = 1; i <= 200; i++) {
+        const sensorId = document.getElementById(`sensor${i}`).value.trim();
+        let columnData = document.getElementById(`column${i}`).value.trim();
+
+        if (sensorId && columnData) {
+            columnData = columnData.split('\n').filter(Boolean);
+
+            // Aplicar filtro de data aos dados do sensor
+            if (!allDatesFlag) {
+                columnData = columnData.filter((_, index) => {
+                    const currentDate = new Date(labels[index]);
+                    return currentDate >= startDate && currentDate <= endDate;
+                });
+            }
+
+            const sensorDisplay = `S${i}: ${sensorId}`;
+
+            if (dataType === 'both') {
+                const tempAndHumid = columnData.map(row => row.split('|').map(value => parseFloat(value.trim())));
+                let tempDataSet = tempAndHumid.map(row => row[0]);
+                let humidDataSet = tempAndHumid.map(row => row[1]);
+
+                tempData.push(tempDataSet);
+                humidData.push(humidDataSet);
+
+                datasetsTemp.push({
+                    label: `Temperatura ${sensorDisplay}`,
+                    data: tempDataSet,
+                    borderColor: getRandomColor(i),
+                    yAxisID: 'yTemp',
+                    fill: false
+                });
+
+                datasetsHumid.push({
+                    label: `Umidade ${sensorDisplay}`,
+                    data: humidDataSet,
+                    borderColor: getRandomColor(i + 100),
+                    yAxisID: 'yHumid',
+                    fill: false
+                });
+            } else if (dataType === 'temp') {
+                const data = columnData.map(val => parseFloat(val.replace(',', '.')));
+                tempData.push(data);
+
+                datasetsTemp.push({
+                    label: `Temperatura ${sensorDisplay}`,
+                    data: data,
+                    borderColor: getRandomColor(i),
+                    yAxisID: 'yTemp',
+                    fill: false
+                });
+            } else if (dataType === 'humid') {
+                const data = columnData.map(val => parseFloat(val.replace(',', '.')));
+                humidData.push(data);
+
+                datasetsHumid.push({
+                    label: `Umidade ${sensorDisplay}`,
+                    data: data,
+                    borderColor: getRandomColor(i),
+                    yAxisID: 'yHumid',
+                    fill: false
+                });
+            }
+        }
+    }
+
+    // Adicionar limites aos datasets
+    if (dataType === 'temp' || dataType === 'both') {
+        datasetsTemp.push({
+            label: 'Limite Inferior Temperatura',
+            data: Array(filteredLabels.length).fill(LI_temp),
+            borderColor: 'rgba(0, 0, 255, 1)',
+            borderDash: [5, 5],
+            fill: false
+        });
+        datasetsTemp.push({
+            label: 'Limite Superior Temperatura',
+            data: Array(filteredLabels.length).fill(LS_temp),
+            borderColor: 'rgba(255, 0, 0, 1)',
+            borderDash: [5, 5],
+            fill: false
+        });
+    }
+
+    if (dataType === 'humid' || dataType === 'both') {
+        datasetsHumid.push({
+            label: 'Limite Inferior Umidade',
+            data: Array(filteredLabels.length).fill(LI_humid),
+            borderColor: 'rgba(0, 0, 255, 1)',
+            borderDash: [5, 5],
+            fill: false
+        });
+        datasetsHumid.push({
+            label: 'Limite Superior Umidade',
+            data: Array(filteredLabels.length).fill(LS_humid),
+            borderColor: 'rgba(255, 0, 0, 1)',
+            borderDash: [5, 5],
+            fill: false
+        });
+    }
+
+    // Limpar gráficos anteriores
+    if (chartTemp) chartTemp.destroy();
+    if (chartHumid) chartHumid.destroy();
+
+    // Criar gráfico de temperatura
+    const ctxTemp = document.getElementById('myChartTemp').getContext('2d');
+    chartTemp = new Chart(ctxTemp, {
+        type: 'line',
+        data: {
+            labels: filteredLabels,
+            datasets: datasetsTemp
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Gráfico de Temperatura',
+                    font: {
+                        size: 38,
+                        weight: 'bold',
+                        color: '#000000'
+                    },
+                    color: '#000000'
+                },
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        font: fontConfig,
+                        color: '#000000'
+                    }
+                }
+            },
+            scales: {
+                yTemp: {
+                    ...axisConfig,
+                    type: 'linear',
+                    position: 'left',
+                    title: {
+                        ...axisConfig.title,
+                        text: 'Temperatura (°C)'
+                    }
+                },
+                x: {
+                    ...axisConfig,
+                    title: {
+                        ...axisConfig.title,
+                        text: 'Data/Hora'
+                    }
+                }
+            }
+        }
+    });
+
+    // Criar gráfico de umidade se necessário
+    if (dataType === 'both' || dataType === 'humid') {
+        const ctxHumid = document.getElementById('myChartHumid').getContext('2d');
+        chartHumid = new Chart(ctxHumid, {
+            type: 'line',
+            data: {
+                labels: filteredLabels,
+                datasets: datasetsHumid
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Gráfico de Umidade',
+                        font: {
+                            size: 38,
+                            weight: 'bold',
+                            color: '#000000'
+                        },
+                        color: '#000000'
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            font: fontConfig,
+                            color: '#000000'
+                        }
+                    }
+                },
+                scales: {
+                    yHumid: {
+                        ...axisConfig,
+                        type: 'linear',
+                        position: 'left',
+                        title: {
+                            ...axisConfig.title,
+                            text: 'Umidade (%)'
+                        }
+                    },
+                    x: {
+                        ...axisConfig,
+                        title: {
+                            ...axisConfig.title,
+                            text: 'Data/Hora'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Gerar tabelas
+    generateTables(tempData, humidData, filteredLabels, LI_temp, LS_temp, LI_humid, LS_humid);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function generateTables(tempData, humidData, labels, LI_temp, LS_temp, LI_humid, LS_humid) {
+    const tempTable = document.getElementById('tempTable');
+    const humidTable = document.getElementById('humidTable');
+    const generalStatsTableTemp = document.getElementById('generalStatsTableTemp');
+    const generalStatsTableHumid = document.getElementById('generalStatsTableHumid');
+
+    if (!tempTable || !humidTable || !generalStatsTableTemp || !generalStatsTableHumid) {
+        console.error("Um ou mais elementos da tabela não foram encontrados no HTML.");
+        return;
+    }
+
+    // Limpa as tabelas anteriores
+    tempTable.innerHTML = '';
+    humidTable.innerHTML = '';
+    generalStatsTableTemp.innerHTML = '';
+    generalStatsTableHumid.innerHTML = '';
+
+    // Função auxiliar para calcular estatísticas
+    function calcStatistics(data, LI, LS) {
+        const validData = data.filter(value => !isNaN(value));
+
+        if (validData.length === 0) {
+            return { min: NaN, max: NaN, avg: NaN, belowSpec: 0, withinSpec: 0, aboveSpec: 0 };
+        }
+
+        const min = Math.min(...validData);
+        const max = Math.max(...validData);
+        const avg = (validData.reduce((a, b) => a + b, 0) / validData.length).toFixed(2);
+        const belowSpec = ((validData.filter(val => val < LI).length / validData.length) * 100).toFixed(2);
+        const withinSpec = ((validData.filter(val => val >= LI && val <= LS).length / validData.length) * 100).toFixed(2);
+        const aboveSpec = ((validData.filter(val => val > LS).length / validData.length) * 100).toFixed(2);
+
+        return { min, max, avg, belowSpec, withinSpec, aboveSpec };
+    }
+
+
+
+function calculateTimeDifference(timestamps) {
+    if (!timestamps || timestamps.length < 2) return 0;
+    const firstDate = new Date(timestamps[0]);
+    const lastDate = new Date(timestamps[timestamps.length - 1]);
+    return Math.round((lastDate - firstDate) / (1000 * 60)); // Diferença em minutos
+}
+
+function findFirstOutOfSpecTime(data, timestamps, LI, LS) {
+    for (let i = 0; i < data.length; i++) {
+        const value = data[i];
+        if (value < LI || value > LS) {
+            return {
+                time: new Date(timestamps[i]),
+                value: value,
+                index: i
+            };
+        }
+    }
+    return null;
+}
+
+
+
+
+
+    // Função para gerar a tabela de estatísticas individuais
+function generateIndividualStatsTable(data, LI, LS, targetTable, title, unit) {
+    const testType = document.getElementById('testType').value;
+    const dataType = document.getElementById('dataType').value;
+    const allDatesFlag = document.getElementById('allDatesFlag').checked;
+    let startDate = null;
+    let endDate = null;
+
+    if (!allDatesFlag) {
+        startDate = new Date(document.getElementById('startDate').value);
+        endDate = new Date(document.getElementById('endDate').value);
+    }
+
+    const tableHeader = `
+        <thead>
+            <tr>
+                <th colspan="7">${title}</th>
+            </tr>
+            <tr>
+                <th>Sensor</th>
+                <th>Mínima (${unit})</th>
+                <th>Média (${unit})</th>
+                <th>Máxima (${unit})</th>
+                <th>% Abaixo da Especificação</th>
+                <th>% Dentro da Especificação</th>
+                <th>% Acima da Especificação</th>
+            </tr>
+        </thead>`;
+
+    let minSensors = [];
+    let maxSensors = [];
+    let minTemp = Infinity;
+    let maxTemp = -Infinity;
+    let sensorsWithData = [];
+
+    // Obter datas para filtro
+    const dates = document.getElementById('column0').value.split('\n').filter(Boolean);
+
+    // Processar sensores de S1 a S200
+    for (let i = 1; i <= 200; i++) {
+        const columnData = document.getElementById(`column${i}`).value.trim();
+        const sensorId = document.getElementById(`sensor${i}`).value.trim();
+
+        if (columnData && sensorId) {
+            let rawData = columnData.split('\n').filter(Boolean);
+            let filteredData = [];
+
+            // Aplicar filtro de data
+            for (let j = 0; j < rawData.length; j++) {
+                if (dates[j]) {
+                    const currentDate = new Date(dates[j]);
+                    if (allDatesFlag || (currentDate >= startDate && currentDate <= endDate)) {
+                        if (dataType === 'both') {
+                            // Para dados combinados, pegar o valor correto (temp ou humid)
+                            const [temp, humid] = rawData[j].split('|').map(v => parseFloat(v.trim()));
+                            filteredData.push(unit === '°C' ? temp : humid);
+                        } else {
+                            filteredData.push(parseFloat(rawData[j]));
+                        }
+                    }
+                }
+            }
+
+            // Remover valores NaN
+            filteredData = filteredData.filter(value => !isNaN(value));
+
+            if (filteredData.length > 0) {
+                const sensorStats = calcStatistics(filteredData, LI, LS);
+                const sensorInfo = {
+                    id: i,
+                    display: `S${i}: ${sensorId}`,
+                    stats: sensorStats,
+                    avg: parseFloat(sensorStats.avg)
+                };
+
+                sensorsWithData.push(sensorInfo);
+
+                // Atualizar mínimos
+                if (!isNaN(sensorStats.min)) {
+                    if (sensorStats.min < minTemp) {
+                        minTemp = sensorStats.min;
+                        minSensors = [sensorInfo];
+                    } else if (sensorStats.min === minTemp) {
+                        minSensors.push(sensorInfo);
+                    }
+                }
+
+                // Atualizar máximos
+                if (!isNaN(sensorStats.max)) {
+                    if (sensorStats.max > maxTemp) {
+                        maxTemp = sensorStats.max;
+                        maxSensors = [sensorInfo];
+                    } else if (sensorStats.max === maxTemp) {
+                        maxSensors.push(sensorInfo);
+                    }
+                }
+            }
+        }
+    }
+
+    // Ordenar sensores pelo número do sensor
+    sensorsWithData.sort((a, b) => a.id - b.id);
+
+    // Gerar linhas da tabela
+    const tableBody = sensorsWithData.map(sensor => `
+        <tr>
+            <td>${sensor.display}</td>
+            <td>${isNaN(sensor.stats.min) ? 'N/A' : sensor.stats.min.toFixed(2)}</td>
+            <td>${isNaN(sensor.stats.avg) ? 'N/A' : sensor.stats.avg}</td>
+            <td>${isNaN(sensor.stats.max) ? 'N/A' : sensor.stats.max.toFixed(2)}</td>
+            <td>${sensor.stats.belowSpec} %</td>
+            <td>${sensor.stats.withinSpec} %</td>
+            <td>${sensor.stats.aboveSpec} %</td>
+        </tr>`
+    ).join('');
+
+    let note = '';
+    
+    if ((testType === 'comCarga' || testType === 'semCarga') && minSensors.length > 0 && maxSensors.length > 0) {
+        // Determinar sensor mais frio/úmido baseado na média quando há empate
+        let minSensor = minSensors.length > 1 
+            ? minSensors.reduce((a, b) => a.avg < b.avg ? a : b)
+            : minSensors[0];
+
+        // Determinar sensor mais quente/seco baseado na média quando há empate
+        let maxSensor = maxSensors.length > 1
+            ? maxSensors.reduce((a, b) => a.avg > b.avg ? a : b)
+            : maxSensors[0];
+
+        if (unit === '°C') {
+            note = `<tr><td colspan="7" style="text-align: left; padding: 10px;">
+                Nota: Para a definição do ponto mais frio, foi levado em consideração o ponto do dispositivo de medição com registro de menor temperatura mínima, sendo este, o sensor ${minSensor.display} (${minTemp.toFixed(2)}°C) e para a definição do ponto mais quente, foi levado em consideração o sensor com maior registro máximo de temperatura, sendo este o sensor ${maxSensor.display} (${maxTemp.toFixed(2)}°C). Em casos de registros de mínima e ou máxima iguais, o critério de definição leva em consideração a média do dispositivo de medição.
+            </td></tr>`;
+        } else if (unit === '%UR') {
+            note = `<tr><td colspan="7" style="text-align: left; padding: 10px;">
+                Nota: Para a definição do ponto menos úmido, foi levado em consideração o ponto do dispositivo de medição com registro de menor umidade mínima, sendo este, o sensor ${minSensor.display} (${minTemp.toFixed(2)}%UR) e para a definição do ponto mais úmido, foi levado em consideração o sensor com maior registro máximo de umidade relativa, sendo este o sensor ${maxSensor.display} (${maxTemp.toFixed(2)}%UR). Em casos de registros de mínima e ou máxima iguais, o critério de definição leva em consideração a média do dispositivo de medição.
+            </td></tr>`;
+        }
+    }
+
+    targetTable.innerHTML = tableHeader + '<tbody>' + tableBody + note + '</tbody>';
+}
+
+
+
+
+
+
+
+function findFirstOutOfSpecTime(data, timestamps, LI, LS) {
+    for (let i = 0; i < data.length; i++) {
+        const value = parseFloat(data[i]);
+        if (!isNaN(value) && (value < LI || value > LS)) {
+            return {
+                time: new Date(timestamps[i]),
+                value: value,
+                index: i
+            };
+        }
+    }
+    return null;
+}
+
+function calculateTimeDifference(timestamps) {
+    if (!timestamps || timestamps.length < 2) return 0;
+    const firstDate = new Date(timestamps[0]);
+    const lastDate = new Date(timestamps[timestamps.length - 1]);
+    return Math.round((lastDate - firstDate) / (1000 * 60));
+}
+
+
+
+    // Gerar tabelas de temperatura se houver dados
+    if (tempData && tempData.length > 0) {
+        generateIndividualStatsTable(tempData, LI_temp, LS_temp, tempTable, 
+            "Estatísticas Individuais por Sensor de Temperatura", "°C");
+        generateGeneralStatsTable(tempData, LI_temp, LS_temp, generalStatsTableTemp,
+            "Estatísticas Gerais de Temperatura", "°C");
+    }
+
+    // Gerar tabelas de umidade se houver dados
+    if (humidData && humidData.length > 0) {
+        generateIndividualStatsTable(humidData, LI_humid, LS_humid, humidTable,
+            "Estatísticas Individuais por Sensor de Umidade Relativa", "%UR");
+        generateGeneralStatsTable(humidData, LI_humid, LS_humid, generalStatsTableHumid,
+            "Estatísticas Gerais de Umidade Relativa", "%UR");
+    }
+
+
+
+
+
+
+
+
+
+
+    // Função para calcular e gerar a tabela de estatísticas gerais
+function generateGeneralStatsTable(data, LI, LS, targetTable, title, unit) {
+    // Função para processar dados quando estão no formato "valor1 | valor2"
+    function processData(data) {
+        if (!Array.isArray(data)) return [];
+        
+        return data.map(row => {
+            if (typeof row === 'string' && row.includes('|')) {
+                // Se for string com pipe, pega o valor apropriado baseado no tipo (temp ou humid)
+                const [temp, humid] = row.split('|').map(v => parseFloat(v.trim()));
+                return unit === '°C' ? temp : humid;
+            }
+            return parseFloat(row);
+        }).filter(v => !isNaN(v));
+    }
+
+    // Processa os dados para cada sensor
+    const processedData = data.map(sensorData => processData(sensorData));
+
+    // Calcula estatísticas básicas
+    const allData = processedData.flat();
+    const stats = calcStatistics(allData, LI, LS);
+
+    // Calcula médias mínimas e máximas linha a linha
+    const numRows = processedData[0]?.length || 0;
+    let sumMin = 0;
+    let sumMax = 0;
+    let validRows = 0;
+
+    for (let row = 0; row < numRows; row++) {
+        let rowValues = [];
+        
+        // Coleta valores válidos para esta linha de todos os sensores
+        for (let sensorIndex = 0; sensorIndex < processedData.length; sensorIndex++) {
+            const value = processedData[sensorIndex][row];
+            if (!isNaN(value)) {
+                rowValues.push(value);
+            }
+        }
+
+        // Se houver valores válidos nesta linha
+        if (rowValues.length > 0) {
+            sumMin += Math.min(...rowValues);
+            sumMax += Math.max(...rowValues);
+            validRows++;
+        }
+    }
+
+    // Calcula as médias
+    const avgMin = validRows > 0 ? sumMin / validRows : NaN;
+    const avgMax = validRows > 0 ? sumMax / validRows : NaN;
+
+    const tableHeader = `
+        <thead>
+            <tr>
+                <th colspan="8">${title}</th>
+            </tr>
+            <tr>
+                <th>Mínima (${unit})</th>
+                <th>Média (${unit})</th>
+                <th>Máxima (${unit})</th>
+                <th>Média Mínima (${unit})</th>
+                <th>Média Máxima (${unit})</th>
+                <th>% Abaixo da Especificação</th>
+                <th>% Dentro da Especificação</th>
+                <th>% Acima da Especificação</th>
+            </tr>
+        </thead>`;
+    
+    const tableBody = `
+        <tbody>
+            <tr>
+                <td>${isNaN(stats.min) ? 'N/A' : stats.min.toFixed(2)}</td>
+                <td>${isNaN(stats.avg) ? 'N/A' : stats.avg}</td>
+                <td>${isNaN(stats.max) ? 'N/A' : stats.max.toFixed(2)}</td>
+                <td>${isNaN(avgMin) ? 'N/A' : avgMin.toFixed(2)}</td>
+                <td>${isNaN(avgMax) ? 'N/A' : avgMax.toFixed(2)}</td>
+                <td>${stats.belowSpec} %</td>
+                <td>${stats.withinSpec} %</td>
+                <td>${stats.aboveSpec} %</td>
+            </tr>
+        </tbody>`;
+
+    targetTable.innerHTML = tableHeader + tableBody;
+}
+
+
+
+
+
+
+
+
+
+    // Gera a tabela de estatísticas gerais para temperatura e umidade combinadas
+    if (tempData.length > 0) {
+        generateGeneralStatsTable(tempData, LI_temp, LS_temp, generalStatsTable);
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    const generalStats = calculateGeneralStats(allColumnData, LI, LS, sensorData);
+    document.getElementById('generalStatsContainer').innerHTML = `
+        <h3>Estatísticas Gerais</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Mínima (${unit})</th>
+                    <th>Média (${unit})</th>
+                    <th>Máxima (${unit})</th>
+                    <th>Média Mínima (${unit})</th>
+                    <th>Média Máxima (${unit})</th>
+                    <th>% Abaixo da especificação</th>
+                    <th>% Dentro da especificação</th>
+                    <th>% Acima da especificação</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>${generalStats.min.toFixed(2)}</td>
+                    <td>${generalStats.avg.toFixed(2)}</td>
+                    <td>${generalStats.max.toFixed(2)}</td>
+                    <td>${generalStats.averageMin.toFixed(2)}</td>
+                    <td>${generalStats.averageMax.toFixed(2)}</td>
+                    <td>${(generalStats.belowSpec / generalStats.total * 100).toFixed(2)}%</td>
+                    <td>${(generalStats.withinSpec / generalStats.total * 100).toFixed(2)}%</td>
+                    <td>${(generalStats.aboveSpec / generalStats.total * 100).toFixed(2)}%</td>
+                </tr>
+            </tbody>
+        </table>
+    `;
+
+    // Gerar a tabela de estatísticas por sensor (excluindo S EXT)
+    const statsTable = sensorData.map(sensor => `
+        <tr>
+            <td>${sensor.columnName}</td>
+            <td>${sensor.stats.min.toFixed(2)}</td>
+            <td>${sensor.stats.avg.toFixed(2)}</td>
+            <td>${sensor.stats.max.toFixed(2)}</td>
+            <td>${(sensor.stats.belowSpec / sensor.stats.total * 100).toFixed(2)}%</td>
+            <td>${(sensor.stats.withinSpec / sensor.stats.total * 100).toFixed(2)}%</td>
+            <td>${(sensor.stats.aboveSpec / sensor.stats.total * 100).toFixed(2)}%</td>
+        </tr>
+    `).join('');
+
+    document.getElementById('statsContainer').innerHTML = `
+        <h3>Estatísticas Individuais por Sensor</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Sensor</th>
+                    <th>Mínima (${unit})</th>
+                    <th>Média (${unit})</th>
+                    <th>Máxima (${unit})</th>
+                    <th>% Abaixo da especificação</th>
+                    <th>% Dentro da especificação</th>
+                    <th>% Acima da especificação</th>
+                </tr>
+            </thead>
+            <tbody>${statsTable}</tbody>
+        </table>
+    `;
+
+    // Avaliação de pontos quentes e frios
+    document.getElementById('summaryContainer').innerHTML = `
+        <h3>Avaliação de Pontos Quentes e Frios</h3>
+        <p>O ponto mais frio foi de ${minValue.toFixed(2)}${unit}, registrado no dispositivo ${minDevice}, e o ponto mais quente foi de ${maxValue.toFixed(2)}${unit}, registrado no dispositivo ${maxDevice}.</p>
+    `;
+}
+
+function calculateStats(data, LI, LS) {
+    const validData = data.filter(v => !isNaN(v));
+    if (validData.length === 0) {
+        return { min: NaN, max: NaN, avg: NaN, belowSpec: 0, withinSpec: 0, aboveSpec: 0 };
+    }
+
+    const min = Math.min(...validData);
+    const max = Math.max(...validData);
+    const avg = (validData.reduce((a, b) => a + b, 0) / validData.length).toFixed(2);
+    const belowSpec = ((validData.filter(val => val < LI).length / validData.length) * 100).toFixed(2);
+    const withinSpec = ((validData.filter(val => val >= LI && val <= LS).length / validData.length) * 100).toFixed(2);
+    const aboveSpec = ((validData.filter(val => val > LS).length / validData.length) * 100).toFixed(2);
+
+    return { min, max, avg, belowSpec, withinSpec, aboveSpec };
+}
+
+function calculateGeneralStats(allData, LI, LS, sensorData) {
+    const validData = allData.flat().filter(v => !isNaN(v));
+    const stats = calculateStats(validData, LI, LS);
+    const { averageMax, averageMin } = calculateAverageMaxMin(sensorData);
+    return { ...stats, averageMax, averageMin };
+}
+
+function calculateAverageMaxMin(sensorData) {
+    const maxValues = sensorData.map(data => data.stats.max).filter(value => !isNaN(value));
+    const minValues = sensorData.map(data => data.stats.min).filter(value => !isNaN(value));
+
+    const averageMax = maxValues.length > 0 ? maxValues.reduce((a, b) => a + b, 0) / maxValues.length : NaN;
+    const averageMin = minValues.length > 0 ? minValues.reduce((a, b) => a + b, 0) / minValues.length : NaN;
+
+    return { averageMax, averageMin };
+}
+
+
+
+
+
+
+
+    function getColumnData(columnId) {
+        return document.getElementById(columnId).value.split('\n').map(value => value.trim()).filter(value => value);
+    }
+
+    // Função para filtrar os dados com base no intervalo de Data/Hora
+    function filterDataByDate(labels, data, startDate, endDate) {
+        if (!startDate || !endDate) {
+            return { filteredLabels: labels, filteredData: data };
+        }
+
+        const filteredLabels = [];
+        const filteredData = [];
+
+        for (let i = 0; i < labels.length; i++) {
+            const labelDate = new Date(labels[i]);
+
+            if (labelDate >= new Date(startDate) && labelDate <= new Date(endDate)) {
+                filteredLabels.push(labels[i]);
+                filteredData.push(data[i]);
+            }
+        }
+
+        return { filteredLabels, filteredData };
+    }
+
+
+
+
+    // Funções para arrastar e soltar os arquivos
+function handleDrop(event, id) {
+    event.preventDefault();
+    const dropZone = event.currentTarget;
+    dropZone.classList.remove('highlight');
+    const file = event.dataTransfer.files[0];
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, {type: 'array'});
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+        // Verificar qual tipo de dado está selecionado
+        const dataType = document.getElementById('dataType').value;
+
+        let tempRange = 'C30:C20000';  // Intervalo de temperatura
+        let humidRange = 'D30:D20000'; // Intervalo de umidade
+        let dateRange = 'B30:B20000';  // Intervalo para Data e Hora
+
+        // Preencher "Data e Hora" para a coluna 0 quando um arquivo for arrastado para S1
+        if (id === 'column1') {
+            const dateData = XLSX.utils.sheet_to_json(sheet, {header: 1, range: dateRange});
+            const dateValues = dateData.map(date => date[0]).join('\n');
+            document.getElementById('column0').value = dateValues;
+        }
+
+        // Carregar os dados corretamente de acordo com o tipo selecionado
+        if (dataType === 'temp') {
+            const tempData = XLSX.utils.sheet_to_json(sheet, {header: 1, range: tempRange});
+            const tempValues = tempData.map(row => parseFloat(row[0]).toFixed(1)).join('\n');
+            document.getElementById(id).value = tempValues;
+        } else if (dataType === 'humid') {
+            const humidData = XLSX.utils.sheet_to_json(sheet, {header: 1, range: humidRange});
+            const humidValues = humidData.map(row => parseFloat(row[0]).toFixed(1)).join('\n');
+            document.getElementById(id).value = humidValues;
+        } else if (dataType === 'both') {
+            const tempData = XLSX.utils.sheet_to_json(sheet, {header: 1, range: tempRange});
+            const humidData = XLSX.utils.sheet_to_json(sheet, {header: 1, range: humidRange});
+            const combinedData = tempData.map((tempRow, index) => {
+                const tempValue = tempRow[0] ? parseFloat(tempRow[0]).toFixed(1) : '';
+                const humidValue = humidData[index] && humidData[index][0] ? parseFloat(humidData[index][0]).toFixed(1) : '';
+                return `${tempValue} | ${humidValue}`;
+            }).join('\n');
+
+            document.getElementById(id).value = combinedData;
+        }
+
+        // Definir o ID do sensor com base no nome do arquivo carregado
+        document.getElementById(id.replace('column', 'sensor')).value = file.name.replace(/\.[^/.]+$/, '');
+    };
+
+    reader.readAsArrayBuffer(file);
+}
+
+
+
+
+
+
+
+
+
+
+    function highlightZone(event) {
+        event.preventDefault();
+        event.currentTarget.classList.add('highlight');
+    }
+
+    function unhighlightZone(event) {
+        event.currentTarget.classList.remove('highlight');
+    }
+
+    // Adiciona os eventos de arrastar e soltar para as zonas de drop
+    document.querySelectorAll('.drop-zone').forEach(zone => {
+        zone.addEventListener('dragover', highlightZone);
+        zone.addEventListener('dragleave', unhighlightZone);
+        zone.addEventListener('drop', function(event) {
+            handleDrop(event, zone.previousElementSibling.id);
+        });
+    });
+
+    // Funções para impedir o comportamento padrão de arrastar e soltar fora das zonas
+    window.addEventListener('dragover', function(e) {
+        e.preventDefault();
+    }, false);
+    window.addEventListener('drop', function(e) {
+        e.preventDefault();
+    }, false);
+    </script>
+</body>
+</html>
+
